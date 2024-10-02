@@ -68,11 +68,11 @@ export function activate(context: vscode.ExtensionContext) {
 					debugger;
 					let text = document
 					.getText(new vscode.Range(
-						Math.max(0, location.targetSelectionRange.start.line - 2),
+						Math.max(0, location.targetRange.start.line - 2),
 						0,
-						location.targetSelectionRange.start.line + 5,
-						Math.max(location.targetSelectionRange.end.character, 100)));
-					// .getText(location.targetSelectionRange);
+						location.targetRange.start.line + 5,
+						Math.max(location.targetRange.end.character, 100)));
+					// .getText(location.targetRange);
 					console.log("text", text);
 					relevantText = [relevantText, "// "+activeTextEditor.document.uri].join("\n");
 					relevantText = [relevantText, text].join("\n");
