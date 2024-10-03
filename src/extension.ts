@@ -33,7 +33,7 @@ export function activate(context: vscode.ExtensionContext) {
 		let lines = content.split("\n");
 		lines = lines.filter((line: string) => line.trim().length > 0);
 		return lines.join("\n");
-	}
+	};
 	const foldToNLines = (content: string, linesAtBegining: number, linesAtEnd: number) => {
 		let lines: string[] = removeEmptyLines(content).split("\n");
 		// remove empty lines and trim
@@ -55,10 +55,10 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 		return lines.join("\n");
 	};
-	const isOverlapping = (document:vscode.TextDocument, activeTextEditor:vscode.TextEditor, curPos:vscode.Position, rangeStart:number, rangeEnd:number) => {
-		if(document.uri.path == activeTextEditor.document.uri.path){
+	const isOverlapping = (document: vscode.TextDocument, activeTextEditor: vscode.TextEditor, curPos: vscode.Position, rangeStart: number, rangeEnd: number) => {
+		if (document.uri.path === activeTextEditor.document.uri.path) {
 			let start = Math.max(0, curPos.line - config.NORMAL_LINES_LOOK_BEHIND),
-				end = curPos.line; 
+				end = curPos.line;
 			return !(end < rangeStart || rangeEnd < start); // overlapping
 		}
 		return false;
@@ -91,7 +91,7 @@ export function activate(context: vscode.ExtensionContext) {
 					.filter((symbol: any) =>
 						symbol.range.start.line <= position.line
 						&& position.line <= symbol.range.end.line)
-					.filter((symbol: any) => 
+					.filter((symbol: any) =>
 						!isOverlapping(document, activeTextEditor, curPos, symbol.range.start.line, symbol.range.end.line))
 					.map((symbol: any) => {
 						let text = foldToNLines(
@@ -124,8 +124,9 @@ export function activate(context: vscode.ExtensionContext) {
 					// words before '.' or '(' be an object or function calls, will help in providing more context
 					for (let i = 0; i < lineContent.length; i++) {
 						let ch = lineContent.charAt(i);
-						if (ch == "." || ch == '(') {
-							positions.push(new vscode.Position(curPos.line - diff, i - 1));
+						// if (ch == "." || ch == '(' || ch == '=' || ch == '{' || ch == '[') {
+						if (/[\.\(\)*+=\-\[\];,/{}":<>\?]/g.test(ch)) {
+							positions.push(new vscode.Position(Math.max(0, curPos.line - diff), Math.max(0, i - 1)));
 						}
 					}
 				}
@@ -141,7 +142,7 @@ export function activate(context: vscode.ExtensionContext) {
 						if (isValidLocation(location)) {
 							console.log("valid location", location);
 							let document: any = await vscode.workspace.openTextDocument(location.targetUri);
-							if(isOverlapping(document, activeTextEditor, curPos, location.targetRange.start.line, location.targetRange.end.line)){
+							if (isOverlapping(document, activeTextEditor, curPos, location.targetRange.start.line, location.targetRange.end.line)) {
 								continue;
 							}
 							let text = foldToNLines(
@@ -186,8 +187,81 @@ export function activate(context: vscode.ExtensionContext) {
 			console.log("-----BETTER CONTEXT END-----------");
 			fs.writeFile('/tmp/enhanced.txt', finalCodeContext, (err) => console.log);
 			fs.writeFile('/tmp/normal.txt', normalContext, (err) => console.log(err));
+			compareCodeCompletion({ "enhanced": finalCodeContext, "normal": normalContext });
 		}
 	});
+	let compareCodeCompletion = (compareJson: any) => {
+		let system_prompt = `
+		You are an AI assistant that completes programming language code. 
+	
+		Given a code below, complete the code when it is incomplete and you are confident that you know the right answer. 
+		Make sure there is no syntax error when it is combined with the given code.
+		
+		**Instructions:
+			Prefer completing:
+				- If the current line is incomplete
+				- Adding new words/lines at logical points (after function definitions, loop/conditional statements)
+				- Right after starting a new block of code (e.g., function, class, or control structure).
+	
+			Consider these factors for multi-line vs single-line completions:
+				- Context completeness: If the existing code appears to be at the beginning or in the middle of a block, or function (multi-line completion)
+				- Syntax indicators: The presence of block-starting symbols at the end of the current context (multi-line completion)
+				- Keywords: Certain keywords that typically introduce new blocks or structures (multi-line completion)
+				- Indentation: New level? (multi-line)
+				- Code patterns: Common multi-line structures? (multi-line)
+				- Statement/comment incompleteness (single-line)
+				- Scope analysis: Understand the current scope (global, class, function) and the programming language (Python, Javascript, C++, ...) 
+					to determine whether a multi-line, or single-line completion is more appropriate.
+	
+		**Output:
+			Your response must be in the following format:
+			{{
+				"completion": Only provide the exact code completion. 
+					Do not include any explanations, confidence statements, or extra information. 
+					If you're not confident, do not hallucinate, return only 'NONE'.
+					Before generating any response, check whether you are at the beginning/middle/end of a line/comment, and then follow the instructions.
+					Make sure there is no syntax error when it is combined with the given code.
+			}}
+			Do not give any extra explanation.
+			Do not re-write the whole code.
+			The following example is a guidance for your response.
+			The Code part will be given to you. Generate the Output part only.
+	
+		**Examples:
+		{examples}
+		   
+		Code: {code}
+		Output: 
+	`;
+		for (let key of Object.keys(compareJson)) {
+			let content = compareJson[key];
+			const options = {
+				method: 'POST',
+				headers: { Authorization: 'Bearer <API_KEY>', 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					"model":"accounts/fireworks/models/llama-v3p1-8b-instruct",
+					"messages":[
+						{"role":"system","content":system_prompt},
+						{"role":"user","content":content}],
+					"max_tokens":512,
+					"temperature":0,
+					"stream":true,
+					"context_length_exceeded_behavior":"truncate",
+					"user":"<string>"
+				})
+			};
+
+			fetch('https://api.fireworks.ai/inference/v1/chat/completions', options)
+				.then(response => response.text())
+				.then((response:any) => {
+					fs.writeFile(`/tmp/${key}_completion.txt`, response, (err) => console.log);
+				})
+				.catch(err => console.error(err));
+
+				
+		}
+
+	};
 
 	context.subscriptions.push(disposable);
 }
